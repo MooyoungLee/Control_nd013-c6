@@ -1,6 +1,5 @@
-project(PidController)
-
 cmake_minimum_required (VERSION 3.10)
+project(PidController)
 
 # -g allows for gdb debugging
 # turn on -03 for best performance
