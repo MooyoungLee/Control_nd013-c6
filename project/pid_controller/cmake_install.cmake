@@ -1,4 +1,4 @@
-# Install script for directory: C:/Users/mlee/develop/Control_nd013-c6/project/pid_controller
+# Install script for directory: /home/workspace/Control_nd013-c6/project/pid_controller
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -35,7 +35,7 @@ endif()
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
 if(CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "C:/Users/mlee/develop/Control_nd013-c6/project/pid_controller/install_local_manifest.txt"
+  file(WRITE "/home/workspace/Control_nd013-c6/project/pid_controller/install_local_manifest.txt"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()
 if(CMAKE_INSTALL_COMPONENT)
@@ -51,6 +51,6 @@ else()
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "C:/Users/mlee/develop/Control_nd013-c6/project/pid_controller/${CMAKE_INSTALL_MANIFEST}"
+  file(WRITE "/home/workspace/Control_nd013-c6/project/pid_controller/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()
