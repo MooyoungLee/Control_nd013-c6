@@ -222,13 +222,13 @@ int main ()
   * TODO (Step 1): create pid (pid_steer) for steer command and initialize values
   **/
   PID pid_steer = PID();
-  pid_steer.Init(3.0, 0.1, 0.01, 1.0, -1.0);
+  pid_steer.Init(0.8, 0.0005, 0.08, 1.0, -1.0);
   Twiddle twiddle_steer;
   twiddle_steer.Init({pid_steer.Kp, pid_steer.Ki, pid_steer.Kd},
-                     {0.5, 0.02, 0.05},
-                     0.05,
-                     50,
-                     150);
+                     {0.05, 0.0002, 0.01},
+                     0.005,
+                     80,
+                     200);
 
   // initialize pid throttle
   /**
@@ -394,11 +394,17 @@ int main ()
           }
 
           // debug
-          std::cout << "target_speed: " << target_speed
-          << "velocity: " << velocity
-          <<", error_throttle: " << error_throttle
-          <<", throttle_output: " << throttle_output
-          <<", brake_output: " << brake_output
+          std::cout << "steer_pid: [" << pid_steer.Kp
+          << ", " << pid_steer.Ki
+          << ", " << pid_steer.Kd
+          << "], twiddle_active: " << twiddle_steer.IsEnabled()
+          << ", steer_output: " << steer_output
+          << ", error_steer: " << error_steer
+          << ", target_speed: " << target_speed
+          << ", velocity: " << velocity
+          << ", error_throttle: " << error_throttle
+          << ", throttle_output: " << throttle_output
+          << ", brake_output: " << brake_output
           << std:: endl;
 
           // Save data
