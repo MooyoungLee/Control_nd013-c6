@@ -108,9 +108,9 @@ void path_planner(vector<double>& x_points, vector<double>& y_points, vector<dou
 
   }
 
-  Maneuver behavior = behavior_planner.get_active_maneuver();
-
   goal = behavior_planner.state_transition(ego_state, goal, is_junction, tl_state);
+
+  Maneuver behavior = behavior_planner.get_active_maneuver();  // avoid obstable helpers
 
   if(behavior == STOPPED){
 
@@ -184,12 +184,18 @@ void path_planner(vector<double>& x_points, vector<double>& y_points, vector<dou
 
 }
 
-void set_obst(vector<double> x_points, vector<double> y_points, vector<State>& obstacles, bool& obst_flag){
+void set_obst(vector<double> x_points, vector<double> y_points, vector<double> yaw_points, vector<State>& obstacles, bool& obst_flag){
 
-	for( int i = 0; i < x_points.size(); i++){
+  obstacles.clear(); // avoid obstacle helpers
+
+	for (size_t i = 0; i < x_points.size(); i++) {
 		State obstacle;
 		obstacle.location.x = x_points[i];
 		obstacle.location.y = y_points[i];
+    obstacle.rotation.yaw = 0.0;   // avoid obstacle helpers
+    if (i < yaw_points.size()) {
+      obstacle.rotation.yaw = yaw_points[i];
+    }
 		obstacles.push_back(obstacle);
 	}
 	obst_flag = true;
@@ -219,7 +225,7 @@ int main ()
   * TODO (Step 1): create pid (pid_steer) for steer command and initialize values
   **/
   PID pid_steer = PID();
-  pid_steer.Init(0.2, 0.0, 0.004, 1.0, -1.0);
+  pid_steer.Init(3.0, 0.1, 0.01, 1.0, -1.0);
 
   // initialize pid throttle
   /**
@@ -258,11 +264,15 @@ int main ()
           double y_position = data["location_y"];
           double z_position = data["location_z"];
 
-          if(!have_obst){
-          	vector<double> x_obst = data["obst_x"];
-          	vector<double> y_obst = data["obst_y"];
-          	set_obst(x_obst, y_obst, obstacles, have_obst);
+          // if(!have_obst){  // avoid obstacle helper
+          vector<double> x_obst = data["obst_x"];
+          vector<double> y_obst = data["obst_y"];
+          vector<double> yaw_obst;
+          if (data.count("obst_yaw") > 0) {
+            yaw_obst = data["obst_yaw"].get<vector<double>>();
           }
+          set_obst(x_obst, y_obst, yaw_obst, obstacles, have_obst);
+          // }  // avoid obstacle helper
 
           State goal;
           goal.location.x = waypoint_x;
@@ -311,10 +321,10 @@ int main ()
               closest_idx = j;
             }
           }
-          int target_idx = min(closest_idx + 1, static_cast<int>(x_points.size()) - 1);
+          int target_idx = min(closest_idx + 3, static_cast<int>(x_points.size()) - 1);
           double desired_yaw = yaw;
-          if (target_idx != closest_idx) {
-            desired_yaw = angle_between_points(x_points[closest_idx], y_points[closest_idx],
+          if (!x_points.empty()) {
+            desired_yaw = angle_between_points(x_position, y_position,
                                                x_points[target_idx], y_points[target_idx]);
           }
           error_steer = atan2(sin(desired_yaw - yaw), cos(desired_yaw - yaw));
@@ -352,8 +362,8 @@ int main ()
           * TODO (step 2): compute the throttle error (error_throttle) from the position and the desired speed
           **/
           // modify the following line for step 2
-          error_throttle = velocity - v_points[min(target_idx, static_cast<int>(v_points.size()) - 1)];
-
+          const double target_speed = v_points[min(target_idx, static_cast<int>(v_points.size())-1)];
+          error_throttle = target_speed - velocity;
 
           double throttle_output = 0.0;
           double brake_output = 0.0;
@@ -373,6 +383,20 @@ int main ()
             throttle_output = 0;
             brake_output = -throttle;
           }
+
+          // Help overcome launch dead-zone when target speed is non-zero.
+          if (target_speed > 0.5 && velocity < 0.5 && throttle_output < 0.2){
+            throttle_output = 0.2;
+            brake_output = 0.0;
+          }
+
+          // debug
+          std::cout << "target_speed: " << target_speed
+          << "velocity: " << velocity
+          <<", error_throttle: " << error_throttle
+          <<", throttle_output: " << throttle_output
+          <<", brake_output: " << brake_output
+          << std:: endl;
 
           // Save data
           file_throttle.seekg(std::ios::beg);
