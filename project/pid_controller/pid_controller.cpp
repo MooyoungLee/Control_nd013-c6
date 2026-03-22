@@ -5,6 +5,8 @@
  **********************************************/
 
 #include "pid_controller.h"
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <limits>
 #include <math.h>
@@ -95,10 +97,12 @@ Twiddle::Twiddle()
       settle_frames(0),
       eval_frames(0),
       frame_count(0),
+      iteration(0),
       param_index(0),
       stage(kNeedInit),
       initialized(false),
-      enabled(false) {}
+      enabled(false),
+      finished(false) {}
 
 void Twiddle::Init(const std::vector<double>& initial_p,
                    const std::vector<double>& initial_dp,
@@ -113,10 +117,12 @@ void Twiddle::Init(const std::vector<double>& initial_p,
    best_error = std::numeric_limits<double>::infinity();
    error_sum = 0.0;
    frame_count = 0;
+   iteration = 0;
    param_index = 0;
    stage = kNeedInit;
    initialized = false;
    enabled = false;
+   finished = false;
    for (double delta : dp) {
       if (delta > 0.0) {
          enabled = true;
@@ -128,8 +134,16 @@ bool Twiddle::IsEnabled() const {
    return enabled;
 }
 
+bool Twiddle::IsFinished() const {
+   return finished;
+}
+
 std::vector<double> Twiddle::GetParams() const {
    return p;
+}
+
+std::vector<double> Twiddle::GetDeltaParams() const {
+   return dp;
 }
 
 double Twiddle::GetBestError() const {
@@ -139,6 +153,14 @@ double Twiddle::GetBestError() const {
 void Twiddle::ResetRun() {
    frame_count = 0;
    error_sum = 0.0;
+}
+
+void Twiddle::ClampParams() {
+   if (p.size() >= 3) {
+      p[0] = std::min(std::max(p[0], 0.0), 2.0);
+      p[1] = std::min(std::max(p[1], 0.0), 0.1);
+      p[2] = std::min(std::max(p[2], 0.0), 0.5);
+   }
 }
 
 void Twiddle::ApplyToPid(PID& pid) const {
@@ -153,7 +175,8 @@ void Twiddle::AdvanceToNextParameter(PID& pid) {
 
    if (dp_sum <= tolerance) {
       enabled = false;
-      std::cout << "Twiddle converged. Best gains: "
+      finished = true;
+      std::cout << "Twiddle optimization done. Final gains: "
                 << p[0] << ", " << p[1] << ", " << p[2]
                 << " with error " << best_error << std::endl;
       return;
@@ -161,13 +184,14 @@ void Twiddle::AdvanceToNextParameter(PID& pid) {
 
    param_index = (param_index + 1) % static_cast<int>(p.size());
    p[param_index] += dp[param_index];
+   ClampParams();
    stage = kTryIncrease;
    ApplyToPid(pid);
    ResetRun();
 }
 
 bool Twiddle::Update(double cte, PID& pid) {
-   if (!enabled || eval_frames <= 0) {
+   if (!enabled || eval_frames <= 0 || std::isnan(cte) || std::isinf(cte)) {
       return false;
    }
 
@@ -186,14 +210,24 @@ bool Twiddle::Update(double cte, PID& pid) {
       best_error = err;
       initialized = true;
       p[param_index] += dp[param_index];
+      ClampParams();
       stage = kTryIncrease;
       ApplyToPid(pid);
       ResetRun();
       std::cout << "Twiddle baseline error: " << best_error
-                << " starting with gains "
+                << " starting optimization from gains "
                 << p[0] << ", " << p[1] << ", " << p[2] << std::endl;
       return true;
    }
+
+   iteration++;
+   std::cout << "Twiddle iteration " << iteration
+             << ", param index " << param_index
+             << ", error " << err
+             << ", best " << best_error
+             << ", p = [" << p[0] << ", " << p[1] << ", " << p[2] << "]"
+             << ", dp = [" << dp[0] << ", " << dp[1] << ", " << dp[2] << "]"
+             << std::endl;
 
    if (stage == kTryIncrease) {
       if (err < best_error) {
@@ -204,6 +238,7 @@ bool Twiddle::Update(double cte, PID& pid) {
          AdvanceToNextParameter(pid);
       } else {
          p[param_index] -= 2.0 * dp[param_index];
+         ClampParams();
          stage = kTryDecrease;
          ApplyToPid(pid);
          ResetRun();
@@ -218,6 +253,7 @@ bool Twiddle::Update(double cte, PID& pid) {
                 << ". Error: " << best_error << std::endl;
    } else {
       p[param_index] += dp[param_index];
+      ClampParams();
       dp[param_index] *= 0.9;
    }
 

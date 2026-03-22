@@ -86,7 +86,9 @@ public:
 
     bool Update(double cte, PID& pid);
     bool IsEnabled() const;
+    bool IsFinished() const;
     std::vector<double> GetParams() const;
+    std::vector<double> GetDeltaParams() const;
     double GetBestError() const;
 
 private:
@@ -97,6 +99,7 @@ private:
     };
 
     void ResetRun();
+    void ClampParams();
     void ApplyToPid(PID& pid) const;
     void AdvanceToNextParameter(PID& pid);
 
@@ -108,10 +111,12 @@ private:
     int settle_frames;
     int eval_frames;
     int frame_count;
+    int iteration;
     int param_index;
     Stage stage;
     bool initialized;
     bool enabled;
+    bool finished;
 };
 
 #endif //PID_CONTROLLER_H
