@@ -207,6 +207,7 @@ int main ()
   uWS::Hub h;
 
   double new_delta_time;
+  double prev_sim_time = 0.0;
   int i = 0;
 
   fstream file_steer;
@@ -216,16 +217,18 @@ int main ()
   file_throttle.open("throttle_pid_data.txt", std::ofstream::out | std::ofstream::trunc);
   file_throttle.close();
 
-  time_t prev_timer;
-  time_t timer;
-  time(&prev_timer);
-
   // initialize pid steer
   /**
   * TODO (Step 1): create pid (pid_steer) for steer command and initialize values
   **/
   PID pid_steer = PID();
   pid_steer.Init(3.0, 0.1, 0.01, 1.0, -1.0);
+  Twiddle twiddle_steer;
+  twiddle_steer.Init({pid_steer.Kp, pid_steer.Ki, pid_steer.Kd},
+                     {0.5, 0.02, 0.05},
+                     0.05,
+                     50,
+                     150);
 
   // initialize pid throttle
   /**
@@ -234,7 +237,7 @@ int main ()
   PID pid_throttle = PID();
   pid_throttle.Init(0.2, 0.0, 0.004, 1.0, -1.0);
 
-  h.onMessage([&pid_steer, &pid_throttle, &new_delta_time, &timer, &prev_timer, &i](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode)
+  h.onMessage([&pid_steer, &pid_throttle, &twiddle_steer, &new_delta_time, &prev_sim_time, &i](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode)
   {
         auto s = hasData(data);
 
@@ -286,10 +289,9 @@ int main ()
 
           path_planner(x_points, y_points, v_points, yaw, velocity, goal, is_junction, tl_state, spirals_x, spirals_y, spirals_v, best_spirals);
 
-          // Save time and compute delta time
-          time(&timer);
-          new_delta_time = difftime(timer, prev_timer);
-          prev_timer = timer;
+          // Use simulator time so PID and Twiddle update every frame.
+          new_delta_time = (i == 0) ? 0.0 : max(sim_time - prev_sim_time, 0.0);
+          prev_sim_time = sim_time;
 
           ////////////////////////////////////////
           // Steering control
@@ -336,6 +338,7 @@ int main ()
           pid_steer.UpdateError(error_steer);
           
           steer_output = pid_steer.TotalError();
+          twiddle_steer.Update(error_steer, pid_steer);
 
           // Save data
           file_steer.seekg(std::ios::beg);
