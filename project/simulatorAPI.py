@@ -71,10 +71,12 @@ spirals_y = []
 spirals_v = []
 obst_x = []
 obst_y = []
+obst_yaw = []
 spiral_idx = []
 last_move_time = -1
 update_cycle = True
 velocity = 0
+ENABLE_INITIAL_OBSTACLES = False
 
 _prev_junction_id = -1
 _tl_state = 'none'
@@ -128,6 +130,12 @@ def magnitude(vector):
 
 def distance_lookahead(velocity_mag, accel_mag, time=1.5, min_distance=8.0, max_distance=20.0):
     return max( min(velocity_mag * time + 0.5 * accel_mag * time * time, max_distance), min_distance)
+
+
+def clear_world_vehicles(carla_world):
+    actors = carla_world.get_actors().filter('vehicle.*')
+    for actor in actors:
+        actor.destroy()
 
 
 # ==============================================================================
@@ -770,7 +778,7 @@ class KeyboardControl(object):
 # ==============================================================================
 
 def SpawnNPC(client, world, args, offset_x, offset_y):
-    global obst_x, obst_y
+    global obst_x, obst_y, obst_yaw
     SpawnActor = carla.command.SpawnActor
     blueprint = client.get_world().get_blueprint_library().filter(args.filter)[5]
     actor_spawn =  carla.Transform()
@@ -781,6 +789,7 @@ def SpawnNPC(client, world, args, offset_x, offset_y):
     actor_spawn.location.y += offset_y * spawn_point.get_right_vector().y
     obst_x.append(actor_spawn.location.x)
     obst_y.append(actor_spawn.location.y)
+    obst_yaw.append(actor_spawn.rotation.yaw * math.pi / 180.0)
 
 
     return SpawnActor(blueprint, actor_spawn)
@@ -796,6 +805,7 @@ def game_loop(args):
     try:
         client = carla.Client(args.host, args.port)
         client.set_timeout(2.0)
+        clear_world_vehicles(client.get_world())
 
         display = pygame.display.set_mode(
             (args.width, args.height),
@@ -809,17 +819,18 @@ def game_loop(args):
 
         world.player.set_simulate_physics(True)
 
-        # Spawn some obstacles to avoid
-        batch = []
-        batch.append(SpawnNPC(client, world, args, 30, 1.5))
-        batch.append(SpawnNPC(client, world, args, 65, -3 *1.5))
-        batch.append(SpawnNPC(client, world, args, 110, -1 * 1.5))
+        # Keep the road clear for the initial run unless obstacle testing is enabled.
+        if ENABLE_INITIAL_OBSTACLES:
+            batch = []
+            batch.append(SpawnNPC(client, world, args, 30, 1.5))
+            batch.append(SpawnNPC(client, world, args, 65, -3 * 1.5))
+            batch.append(SpawnNPC(client, world, args, 110, -1 * 1.5))
 
-        for response in carla.Client.apply_batch_sync(client, batch):
-            if response.error:
-                logging.error(response.error)
-            else:
-                vehicles_list.append(response.actor_id)
+            for response in carla.Client.apply_batch_sync(client, batch):
+                if response.error:
+                    logging.error(response.error)
+                else:
+                    vehicles_list.append(response.actor_id)
 
         start_time = world.hud.simulation_time
 
@@ -858,7 +869,7 @@ def game_loop(args):
                 location_y = t.location.y
                 location_z = t.location.z
 
-                ws.send(json.dumps({'traj_x': x_points, 'traj_y': y_points, 'traj_v': v_points ,'yaw': _prev_yaw, "velocity": velocity, 'time': sim_time, 'waypoint_x': waypoint_x, 'waypoint_y': waypoint_y, 'waypoint_t': waypoint_t, 'waypoint_j': waypoint_j, 'tl_state': _tl_state, 'obst_x': obst_x, 'obst_y': obst_y, 'location_x': location_x, 'location_y': location_y, 'location_z': location_z } ))
+                ws.send(json.dumps({'traj_x': x_points, 'traj_y': y_points, 'traj_v': v_points ,'yaw': _prev_yaw, "velocity": velocity, 'time': sim_time, 'waypoint_x': waypoint_x, 'waypoint_y': waypoint_y, 'waypoint_t': waypoint_t, 'waypoint_j': waypoint_j, 'tl_state': _tl_state, 'obst_x': obst_x, 'obst_y': obst_y, 'obst_yaw': obst_yaw, 'location_x': location_x, 'location_y': location_y, 'location_z': location_z } ))
 
             clock.tick_busy_loop(60)
             world.tick(clock)
