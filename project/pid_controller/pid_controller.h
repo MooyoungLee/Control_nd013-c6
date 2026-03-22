@@ -7,6 +7,8 @@
 #ifndef PID_CONTROLLER_H
 #define PID_CONTROLLER_H
 
+#include <vector>
+
 class PID {
 public:
 
@@ -70,6 +72,46 @@ public:
     * Update the delta time.
     */
     double UpdateDeltaTime(double new_delta_time);
+};
+
+class Twiddle {
+public:
+    Twiddle();
+
+    void Init(const std::vector<double>& initial_p,
+              const std::vector<double>& initial_dp,
+              double tolerance,
+              int settle_frames,
+              int eval_frames);
+
+    bool Update(double cte, PID& pid);
+    bool IsEnabled() const;
+    std::vector<double> GetParams() const;
+    double GetBestError() const;
+
+private:
+    enum Stage {
+        kNeedInit,
+        kTryIncrease,
+        kTryDecrease
+    };
+
+    void ResetRun();
+    void ApplyToPid(PID& pid) const;
+    void AdvanceToNextParameter(PID& pid);
+
+    std::vector<double> p;
+    std::vector<double> dp;
+    double tolerance;
+    double best_error;
+    double error_sum;
+    int settle_frames;
+    int eval_frames;
+    int frame_count;
+    int param_index;
+    Stage stage;
+    bool initialized;
+    bool enabled;
 };
 
 #endif //PID_CONTROLLER_H
