@@ -92,21 +92,18 @@ MotionPlanner motion_planner(P_NUM_PATHS, P_GOAL_OFFSET, P_ERR_TOLERANCE);
 bool have_obst = false;
 vector<State> obstacles;
 
-void path_planner(vector<double>& x_points, vector<double>& y_points, vector<double>& v_points, double yaw, double velocity, State goal, bool is_junction, string tl_state, vector< vector<double> >& spirals_x, vector< vector<double> >& spirals_y, vector< vector<double> >& spirals_v, vector<int>& best_spirals){
+void path_planner(vector<double>& x_points, vector<double>& y_points, vector<double>& v_points,
+                  double ego_x, double ego_y, double yaw, double velocity, State goal,
+                  bool is_junction, string tl_state,
+                  vector< vector<double> >& spirals_x, vector< vector<double> >& spirals_y,
+                  vector< vector<double> >& spirals_v, vector<int>& best_spirals){
 
   State ego_state;
 
-  ego_state.location.x = x_points[x_points.size()-1];
-  ego_state.location.y = y_points[y_points.size()-1];
+  ego_state.location.x = ego_x;
+  ego_state.location.y = ego_y;
   ego_state.velocity.x = velocity;
-
-  if( x_points.size() > 1 ){
-  	ego_state.rotation.yaw = angle_between_points(x_points[x_points.size()-2], y_points[y_points.size()-2], x_points[x_points.size()-1], y_points[y_points.size()-1]);
-  	ego_state.velocity.x = v_points[v_points.size()-1];
-  	if(velocity < 0.01)
-  		ego_state.rotation.yaw = yaw;
-
-  }
+  ego_state.rotation.yaw = yaw;
 
   goal = behavior_planner.state_transition(ego_state, goal, is_junction, tl_state);
 
@@ -115,11 +112,17 @@ void path_planner(vector<double>& x_points, vector<double>& y_points, vector<dou
   if(behavior == STOPPED){
 
   	int max_points = 20;
-  	double point_x = x_points[x_points.size()-1];
-  	double point_y = y_points[x_points.size()-1];
-  	while( x_points.size() < max_points ){
-  	  x_points.push_back(point_x);
-  	  y_points.push_back(point_y);
+  	double point_x = ego_x;
+  	double point_y = ego_y;
+    x_points.clear();
+    y_points.clear();
+    v_points.clear();
+    x_points.push_back(point_x);
+    y_points.push_back(point_y);
+    v_points.push_back(0.0);
+   	while( x_points.size() < max_points ){
+   	  x_points.push_back(point_x);
+   	  y_points.push_back(point_y);
   	  v_points.push_back(0);
 
   	}
@@ -168,8 +171,24 @@ void path_planner(vector<double>& x_points, vector<double>& y_points, vector<dou
   if(best_spirals.size() > 0)
   	best_spiral_idx = best_spirals[best_spirals.size()-1];
 
+  if (best_spiral_idx < 0) {
+    x_points.clear();
+    y_points.clear();
+    v_points.clear();
+    x_points.push_back(ego_x);
+    y_points.push_back(ego_y);
+    v_points.push_back(0.0);
+    return;
+  }
+
   int index = 0;
   int max_points = 20;
+  x_points.clear();
+  y_points.clear();
+  v_points.clear();
+  x_points.push_back(ego_x);
+  y_points.push_back(ego_y);
+  v_points.push_back(velocity);
   int add_points = spirals_x[best_spiral_idx].size();
   while( x_points.size() < max_points && index < add_points ){
     double point_x = spirals_x[best_spiral_idx][index];
@@ -224,8 +243,10 @@ int main ()
   PID pid_steer = PID();
   pid_steer.Init(0.8, 0.0005, 0.08, 1.0, -1.0);
   Twiddle twiddle_steer;
+  const bool enable_steer_twiddle = false;
   twiddle_steer.Init({pid_steer.Kp, pid_steer.Ki, pid_steer.Kd},
-                     {0.05, 0.0002, 0.01},
+                     enable_steer_twiddle ? vector<double>{0.05, 0.0002, 0.01}
+                                          : vector<double>{0.0, 0.0, 0.0},
                      0.005,
                      80,
                      200);
@@ -287,7 +308,8 @@ int main ()
           vector< vector<double> > spirals_v;
           vector<int> best_spirals;
 
-          path_planner(x_points, y_points, v_points, yaw, velocity, goal, is_junction, tl_state, spirals_x, spirals_y, spirals_v, best_spirals);
+          path_planner(x_points, y_points, v_points, x_position, y_position, yaw, velocity,
+                       goal, is_junction, tl_state, spirals_x, spirals_y, spirals_v, best_spirals);
 
           // Use simulator time so PID and Twiddle update every frame.
           new_delta_time = (i == 0) ? 0.0 : max(sim_time - prev_sim_time, 0.0);
@@ -323,9 +345,25 @@ int main ()
               closest_idx = j;
             }
           }
-          int target_idx = min(closest_idx + 3, static_cast<int>(x_points.size()) - 1);
+          int target_idx = closest_idx;
+          const double lookahead_distance = 3.0;
+          const double heading_x = cos(yaw);
+          const double heading_y = sin(yaw);
+          for (int j = closest_idx + 1; j < static_cast<int>(x_points.size()); ++j) {
+            const double dx = x_points[j] - x_position;
+            const double dy = y_points[j] - y_position;
+            const double forward_projection = dx * heading_x + dy * heading_y;
+            const double dist = sqrt(dx * dx + dy * dy);
+            if (forward_projection > 0.0 && dist >= lookahead_distance) {
+              target_idx = j;
+              break;
+            }
+          }
+          if (target_idx == closest_idx && closest_idx + 1 < static_cast<int>(x_points.size())) {
+            target_idx = closest_idx + 1;
+          }
           double desired_yaw = yaw;
-          if (!x_points.empty()) {
+          if (target_idx != closest_idx) {
             desired_yaw = angle_between_points(x_position, y_position,
                                                x_points[target_idx], y_points[target_idx]);
           }
