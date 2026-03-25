@@ -51,7 +51,7 @@
 #include <limits>
 #include <iostream>
 #include <fstream>
-#include "uws_compat.h"
+#include "local_uws.h"
 #include <math.h>
 #include <vector>
 #include <cmath>
