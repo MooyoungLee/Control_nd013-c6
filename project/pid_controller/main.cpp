@@ -219,14 +219,14 @@ int main ()
   * TODO (Step 1): create pid (pid_steer) for steer command and initialize values
   **/
   PID pid_steer = PID();
-  pid_steer.Init(0.20, 0.001, 0.50, 1.2, -1.2);
+  pid_steer.Init(1.0, 0.0001, 0.1, 1.0, -1.0);
 
   // initialize pid throttle
   /**
   * TODO (Step 1): create pid (pid_throttle) for throttle command and initialize values
   **/
   PID pid_throttle = PID();
-  pid_throttle.Init(0.20, 0.001, 0.02, 1.0, -1.0);
+  pid_throttle.Init(0.5, 0.0, 0.02, 1.0, -1.0);
 
   h.onMessage([&pid_steer, &pid_throttle, &new_delta_time, &timer, &prev_timer, &i, &prev_timer](uWS::WebSocket<uWS::SERVER> ws, 
               char *data, size_t length, uWS::OpCode opCode)
@@ -292,24 +292,29 @@ int main ()
 
           // Compute steer error
           double error_steer;
-          double steer_output;
+          double steer_output=0.0;
 
           /**
           * TODO (step 3): compute the steer error (error_steer) from the position and the desired trajectory
           **/
-          double min_dist = 9000.0;
-          int close_id = 0;
-
-          // Find the nearest point of planned path from the ego car
-          for (int i = 0; i < x_points.size(); ++i) {
-            double act_dist = pow((x_position - x_points[i]), 2) + pow((y_position - y_points[i]), 2);
-            if (act_dist < min_dist) {
-              min_dist = act_dist;
-              close_id = i;
+          int closest_idx = 0;
+          double closest_dist = numeric_limits<double>::max();
+          for (int j = 0; j < x_points.size(); ++j) {
+            double dx = x_points[j] - x_position;
+            double dy = y_points[j] - y_position;
+            double dist = sqrt(dx * dx + dy * dy);
+            if (dist < closest_dist) {
+              closest_dist = dist;
+              closest_idx = j;
             }
           }
-
-          error_steer = angle_between_points(x_position, y_position, x_points[close_id], y_points[close_id]) - yaw;
+          int target_idx = min(closest_idx + 1, static_cast<int>(x_points.size()) - 1);
+          double desired_yaw = yaw;
+          if (target_idx != closest_idx) {
+            desired_yaw = angle_between_points(x_points[closest_idx], y_points[closest_idx],
+                                               x_points[target_idx], y_points[target_idx]);
+          }
+          error_steer = atan2(sin(desired_yaw - yaw), cos(desired_yaw - yaw));
           
           /**
           * TODO (step 3): uncomment these lines
@@ -345,10 +350,10 @@ int main ()
           * TODO (step 2): compute the throttle error (error_throttle) from the position and the desired speed
           **/
           // modify the following line for step 2
-          error_throttle = v_points[close_id] - velocity;
+          error_throttle =  v_points[min(target_idx, static_cast<int>(v_points.size()) - 1)] - velocity;
 
-          double throttle_output;
-          double brake_output;
+          double throttle_output=0.0;
+          double brake_output=0.0;
 
           /**
           * TODO (step 2): uncomment these lines
