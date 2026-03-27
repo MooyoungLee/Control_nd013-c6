@@ -1,5 +1,6 @@
-cmake_minimum_required (VERSION 3.10)
 project(PidController)
+
+cmake_minimum_required (VERSION 3.10)
 
 # -g allows for gdb debugging
 # turn on -03 for best performance
@@ -45,4 +46,4 @@ endif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 
 add_executable(pid_controller ${sources} )
 
-target_link_libraries(pid_controller z ssl uv ${carla_libs} gtest glog boost_filesystem lapack)
+target_link_libraries(pid_controller z ssl uv uWS ${carla_libs} gtest glog boost_filesystem lapack)
