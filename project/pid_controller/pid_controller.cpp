@@ -5,11 +5,7 @@
  **********************************************/
 
 #include "pid_controller.h"
-#include <vector>
-#include <iostream>
-#include <math.h>
-
-using namespace std;
+#include <algorithm>
 
 PID::PID() : p_error(0.0),
              i_error(0.0),
@@ -25,27 +21,29 @@ PID::PID() : p_error(0.0),
 
 PID::~PID() {}
 
-void PID::Init(double Kpi, double Kii, double Kdi, double output_lim_maxi, double output_lim_mini) {
+void PID::Init(double Kpi, double Ki, double Kdi, double output_lim_maxi, double output_lim_mini) {
    /**
-   * TODO: Initialize PID coefficients (and errors, if needed)
+   * Initialize PID coefficients and reset errors
    **/
    Kp = Kpi;
-   Ki = Kii;
-   Kd = Kdi;
-   output_lim_max = output_lim_maxi;
-   output_lim_min = output_lim_mini;
+   this->Ki = Ki;
+   this->Kd = Kdi;
+
+   output_lim_max = std::max(output_lim_maxi, output_lim_mini);
+   output_lim_min = std::min(output_lim_maxi, output_lim_mini);
+
    p_error = 0.0;
    i_error = 0.0;
    d_error = 0.0;
    prev_cte = 0.0;
    delta_time = 0.0;
-   is_initialized = false;
+   is_initialized = true;
 }
 
 
-void PID::UpdateError(double err) {
+void PID::UpdateError(double cte) {
    /**
-   * TODO: Update PID errors based on cte.
+   * Update PID errors based on cte.
    **/
    p_error = cte;
 
@@ -53,31 +51,33 @@ void PID::UpdateError(double err) {
       d_error = 0.0;
       prev_cte = cte;
       is_initialized = true;
-   } else if (delta_time > 0.0) {
-      d_error = (cte - prev_cte) / delta_time;
-      prev_cte = cte;
-   } else {
-      d_error = 0.0;
-      prev_cte = cte;
+      return;
    }
 
    if (delta_time > 0.0) {
+      d_error = (cte - prev_cte) / delta_time;
       i_error += cte * delta_time;
+   } else {
+      d_error = 0.0;
    }
+
+   prev_cte = cte;
 }
 
 
 double PID::TotalError() {
    /**
-   * TODO: Calculate and return the total error
-    * The code should return a value in the interval [output_lim_mini, output_lim_maxi]
+   * Calculate and return the PID control output with clamping.
+   * Output is constrained to [output_lim_min, output_lim_max].
    */
-   double control = -(Kp * p_error + Ki * i_error + Kd * d_error);
-    if (control > output_lim_max) {
-        control = output_lim_max;
-    } else if (control < output_lim_min) {
-        control = output_lim_min;
-    }
+   double raw_control = -(Kp * p_error + Ki * i_error + Kd * d_error);
+   double control = std::clamp(raw_control, output_lim_min, output_lim_max);
+
+   // Anti-windup: if saturated, reduce the effective integral
+   if (control != raw_control && delta_time > 0.0) {
+      double error_sign = (p_error > 0.0 ? 1.0 : (p_error < 0.0 ? -1.0 : 0.0));
+      i_error -= error_sign * Ki * delta_time; // soft correction for next iteration
+   }
 
    return control;
 }
@@ -85,7 +85,7 @@ double PID::TotalError() {
 
 double PID::UpdateDeltaTime(double new_delta_time) {
    /**
-   * TODO: Update the delta time with new value
+   * Update the delta time with new value
    */
    delta_time = new_delta_time;
    return delta_time;

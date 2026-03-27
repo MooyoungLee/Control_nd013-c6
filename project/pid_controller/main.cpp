@@ -352,8 +352,8 @@ int main ()
           // modify the following line for step 2
           error_throttle =  v_points[min(target_idx, static_cast<int>(v_points.size()) - 1)] - velocity;
 
-          double throttle_output=0.0;
-          double brake_output=0.0;
+          double throttle_output;
+          double brake_output;
 
           /**
           * TODO (step 2): uncomment these lines
@@ -369,6 +369,12 @@ int main ()
           } else {
             throttle_output = 0;
             brake_output = -throttle;
+          }
+
+          // Overcome launch dead speed
+          if (target_speed > 0.5 && velocity < 0.5 && throttle_output < 0.2){
+            throttle_output = 0.2;
+            brake_output = 0.0;
           }
           
           // Save data
