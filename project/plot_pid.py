@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 def read_steer_data():
- steer_file = 'projetc/steer_pid_data.txt'
+ steer_file = 'project/steer_pid_data.txt'
  steer_df = pd.read_csv(steer_file, delim_whitespace = True, header = None, usecols = [0, 1, 2])
  steer_df.columns = ['Iteration', 'Error Steering', 'Steering Output']
  print(f'Steer data:\n{steer_df.head()}\n')
