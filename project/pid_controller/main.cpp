@@ -170,7 +170,7 @@ int main() {
 
   // PID Controllers with good starting gains
   PID pid_steer;
-  pid_steer.Init(0.30, 0.0015, 5.0, 1.0, -1.0);   // Kp, Ki, Kd, max, min
+  pid_steer.Init(5.0, 0.01, 2.0, 1.0, -1.0);   // Kp, Ki, Kd, max, min
 
   PID pid_throttle;
   pid_throttle.Init(0.65, 0.0, 0.08, 1.0, -1.0);
