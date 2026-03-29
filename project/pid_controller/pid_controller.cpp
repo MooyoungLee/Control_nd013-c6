@@ -1,12 +1,20 @@
 /**********************************************
  * Self-Driving Car Nano-degree - Udacity
- *  Created on: December 11, 2020
- *      Author: Mathilde Badoual
- *  Modified: 2026 - Fixed sign, delta_time handling, and robustness
+ * Created on: December 11, 2020
+ * Author: Mathilde Badoual
+ * Updated: 2026 - Fixed sign, delta_time handling, and C++17 compatibility
  **********************************************/
 
 #include "pid_controller.h"
 #include <algorithm>
+
+/**
+ * PID Controller Class
+ *
+ * Implements a classic Proportional-Integral-Derivative (PID) controller
+ * commonly used in autonomous vehicle control systems for steering, throttle,
+ * and speed control.
+ */
 
 PID::PID()
     : p_error(0.0),
@@ -21,22 +29,32 @@ PID::PID()
       output_lim_min(0.0),
       delta_time(0.0) {}
 
+/**
+ * Default destructor
+ */
 PID::~PID() {}
 
+/**
+ * Initialize the PID controller with gains and output limits.
+ *
+ * @param Kpi Proportional gain (Kp)
+ * @param Kii Integral gain (Ki)
+ * @param Kdi Derivative gain (Kd)
+ * @param output_lim_maxi Maximum allowed control output
+ * @param output_lim_mini Minimum allowed control output
+ */
 void PID::Init(double Kpi, double Kii, double Kdi,
                double output_lim_maxi, double output_lim_mini) {
-    /**
-     * Initialize PID coefficients and reset all errors
-     **/
+
     Kp = Kpi;
     Ki = Kii;
     Kd = Kdi;
 
-    // Ensure limits are ordered correctly
+    // Ensure max limit is actually larger than min limit
     output_lim_max = std::max(output_lim_maxi, output_lim_mini);
     output_lim_min = std::min(output_lim_maxi, output_lim_mini);
 
-    // Reset errors
+    // Reset all errors and state
     p_error = 0.0;
     i_error = 0.0;
     d_error = 0.0;
@@ -45,57 +63,84 @@ void PID::Init(double Kpi, double Kii, double Kdi,
     is_initialized = true;
 }
 
+/**
+ * Update the PID errors based on the current Cross Track Error (CTE).
+ *
+ * CTE represents the lateral distance from the desired path (positive = right of center).
+ * This function calculates:
+ *   - Proportional error (current CTE)
+ *   - Integral error (accumulated error over time)
+ *   - Derivative error (rate of change of error)
+ *
+ * @param cte Current cross-track error
+ */
 void PID::UpdateError(double cte) {
-    /**
-     * Update PID errors based on cross-track error (cte).
-     **/
-    p_error = cte;
+    p_error = cte;  // Proportional term
 
+    // First-time initialization: no previous error to compute derivative
     if (!is_initialized) {
-        // First call ever
         prev_cte = cte;
         is_initialized = true;
         d_error = 0.0;
         return;
     }
 
-    // Update derivative and integral safely
+    // Only compute derivative and integral if we have a valid time step
     if (delta_time > 0.0) {
-        d_error = (cte - prev_cte) / delta_time;
-        i_error += cte * delta_time;
+        d_error = (cte - prev_cte) / delta_time;        // Derivative term
+        i_error += cte * delta_time;                    // Integral term
     } else {
-        // First frame or invalid delta_time → no derivative, no integral update
-        d_error = 0.0;
+        d_error = 0.0;  // No valid dt → no derivative
     }
 
-    prev_cte = cte;
+    prev_cte = cte;  // Store current error for next derivative calculation
 }
 
+/**
+ * Calculate the total PID control output with output limiting and anti-windup.
+ *
+ * The control output is computed as:
+ *     control = Kp * p_error + Ki * i_error + Kd * d_error
+ *
+ * Positive CTE produces positive steering correction (as required by this project).
+ *
+ * @return Clamped control output (steering angle, throttle, etc.)
+ */
 double PID::TotalError() {
     /**
-     * Calculate the total PID control output with clamping.
-     Positive CTE should produce positive steering correction.
-     **/
+     * Calculate PID control output.
+     * Positive CTE should produce positive steering correction for this project.
+     */
     double raw_control = Kp * p_error + Ki * i_error + Kd * d_error;
 
-    // Clamp the output to allowed steering range
-    double control = std::clamp(raw_control, output_lim_min, output_lim_max);
+    // Clamp the output to the allowed range (manual implementation for C++11/14 compatibility)
+    double control = raw_control;
+    if (control > output_lim_max) {
+        control = output_lim_max;
+    } else if (control < output_lim_min) {
+        control = output_lim_min;
+    }
 
-    // Simple anti-windup: if we are saturated, prevent integral from growing further
-    if (control != raw_control && delta_time > 0.0) {
-        // Back-calculate to reduce integral windup
+    // Simple anti-windup: prevent integral windup when output is saturated
+    // Back-calculate the integral term to avoid accumulating error while clamped
+    if (control != raw_control && delta_time > 0.0 && Ki != 0.0) {
         double excess = raw_control - control;
-        i_error -= excess / Ki * delta_time;   // approximate correction
-        // Optional: you can also clamp i_error directly if you prefer
+        i_error -= excess / Ki * delta_time;   // Adjust integral to match clamped output
     }
 
     return control;
 }
 
+/**
+ * Update the time delta (dt) used for integral and derivative calculations.
+ *
+ * This is important for real-time systems where the control loop frequency
+ * may vary. Only positive values are accepted.
+ *
+ * @param new_delta_time Time elapsed since the last update (in seconds)
+ * @return The currently used delta_time
+ */
 double PID::UpdateDeltaTime(double new_delta_time) {
-    /**
-     * Update the delta time with new value (called every simulation step)
-     **/
     if (new_delta_time > 0.0) {
         delta_time = new_delta_time;
     }

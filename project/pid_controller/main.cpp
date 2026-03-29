@@ -2,7 +2,7 @@
  * Self-Driving Car Nano-degree - Udacity
  *  Created on: September 20, 2020
  *      Author: Munir Jojo-Verge, Aaron Brown
- *  Updated: March 2026 - Improved PID integration and robustness
+ *  Updated: 2026 - Fixed PID integration and State initialization
  **********************************************/
 
 #include <string>
@@ -19,7 +19,6 @@
 #include <vector>
 #include <fstream>
 #include <limits>
-#include <typeinfo>
 
 #include "json.hpp"
 #include <carla/client/ActorBlueprint.h>
@@ -77,19 +76,20 @@ MotionPlanner motion_planner(P_NUM_PATHS, P_GOAL_OFFSET, P_ERR_TOLERANCE);
 bool have_obst = false;
 vector<State> obstacles;
 
-void path_planner(vector<double>& x_points, vector<double>& y_points, vector<double>& v_points, double yaw, double velocity, State goal,
-                  bool is_junction, string tl_state, vector< vector<double> >& spirals_x, vector< vector<double> >& spirals_y, vector< vector<double> >& spirals_v,
-                  vector<int>& best_spirals) {
-  // ... (unchanged - keeping your original path_planner function)
+void path_planner(vector<double>& x_points, vector<double>& y_points, vector<double>& v_points,
+                  double yaw, double velocity, State goal, bool is_junction, string tl_state,
+                  vector<vector<double>>& spirals_x, vector<vector<double>>& spirals_y,
+                  vector<vector<double>>& spirals_v, vector<int>& best_spirals) {
+
   State ego_state;
-  ego_state.location.x = x_points[x_points.size()-1];
-  ego_state.location.y = y_points[y_points.size()-1];
+  ego_state.location.x = x_points.back();
+  ego_state.location.y = y_points.back();
   ego_state.velocity.x = velocity;
 
   if (x_points.size() > 1) {
     ego_state.rotation.yaw = angle_between_points(x_points[x_points.size()-2], y_points[y_points.size()-2],
-                                                  x_points[x_points.size()-1], y_points[y_points.size()-1]);
-    ego_state.velocity.x = v_points[v_points.size()-1];
+                                                  x_points.back(), y_points.back());
+    ego_state.velocity.x = v_points.back();
     if (velocity < 0.01)
       ego_state.rotation.yaw = yaw;
   }
@@ -99,12 +99,12 @@ void path_planner(vector<double>& x_points, vector<double>& y_points, vector<dou
 
   if (behavior == STOPPED) {
     int max_points = 20;
-    double point_x = x_points[x_points.size()-1];
-    double point_y = y_points[y_points.size()-1];
+    double point_x = x_points.back();
+    double point_y = y_points.back();
     while (x_points.size() < max_points) {
       x_points.push_back(point_x);
       y_points.push_back(point_y);
-      v_points.push_back(0);
+      v_points.push_back(0.0);
     }
     return;
   }
@@ -115,16 +115,17 @@ void path_planner(vector<double>& x_points, vector<double>& y_points, vector<dou
 
   State lead_car_state;
 
-  if (spirals.size() == 0) {
+  if (spirals.empty()) {
     cout << "Error: No spirals generated" << endl;
     return;
   }
 
-  for (int i = 0; i < spirals.size(); i++) {
-    auto trajectory = motion_planner._velocity_profile_generator.generate_trajectory(spirals[i], desired_speed, ego_state, lead_car_state, behavior);
+  for (size_t i = 0; i < spirals.size(); ++i) {
+    auto trajectory = motion_planner._velocity_profile_generator.generate_trajectory(
+        spirals[i], desired_speed, ego_state, lead_car_state, behavior);
 
     vector<double> spiral_x, spiral_y, spiral_v;
-    for (auto& point : trajectory) {
+    for (const auto& point : trajectory) {
       spiral_x.push_back(point.path_point.x);
       spiral_y.push_back(point.path_point.y);
       spiral_v.push_back(point.v);
@@ -137,19 +138,21 @@ void path_planner(vector<double>& x_points, vector<double>& y_points, vector<dou
   best_spirals = motion_planner.get_best_spiral_idx(spirals, obstacles, goal);
   int best_spiral_idx = best_spirals.empty() ? -1 : best_spirals.back();
 
-  int index = 0;
+  size_t index = 0;
   int max_points = 20;
-  int add_points = (best_spiral_idx >= 0) ? spirals_x[best_spiral_idx].size() : 0;
+  size_t add_points = (best_spiral_idx >= 0) ? spirals_x[best_spiral_idx].size() : 0;
+
   while (x_points.size() < max_points && index < add_points) {
     x_points.push_back(spirals_x[best_spiral_idx][index]);
     y_points.push_back(spirals_y[best_spiral_idx][index]);
     v_points.push_back(spirals_v[best_spiral_idx][index]);
-    index++;
+    ++index;
   }
 }
 
-void set_obst(vector<double> x_points, vector<double> y_points, vector<State>& obstacles, bool& obst_flag) {
-  for (size_t i = 0; i < x_points.size(); i++) {
+void set_obst(const vector<double>& x_points, const vector<double>& y_points,
+              vector<State>& obstacles, bool& obst_flag) {
+  for (size_t i = 0; i < x_points.size(); ++i) {
     State obstacle;
     obstacle.location.x = x_points[i];
     obstacle.location.y = y_points[i];
@@ -159,31 +162,21 @@ void set_obst(vector<double> x_points, vector<double> y_points, vector<State>& o
 }
 
 int main() {
-  cout << "starting server" << endl;
+  cout << "Starting server..." << endl;
   uWS::Hub h;
 
   double new_delta_time = 0.0;
-  int i = 0;
+  int frame = 0;
 
-  // Logging files
-  ofstream file_steer("steer_pid_data.txt", ios::trunc);
-  ofstream file_throttle("throttle_pid_data.txt", ios::trunc);
-  file_steer.close();
-  file_throttle.close();
-
-  time_t prev_timer;
-  time_t timer;
-  time(&prev_timer);
-
-  // Initialize PID controllers with better starting gains
+  // PID Controllers with good starting gains
   PID pid_steer;
-  pid_steer.Init(0.30, 0.001, 4.0, 1.0, -1.0);   // Kp, Ki, Kd, max, min
+  pid_steer.Init(5.0, 0.01, 2.0, 1.0, -1.0);   // Kp, Ki, Kd, max, min
 
   PID pid_throttle;
-  pid_throttle.Init(0.60, 0.0, 0.05, 1.0, -1.0); // Ki=0 is common for throttle
+  pid_throttle.Init(0.65, 0.0, 0.08, 1.0, -1.0);
 
   h.onMessage([&](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
-    auto s = hasData(string(data, length));
+    string s = hasData(string(data, length));
     if (s.empty()) return;
 
     auto data_json = json::parse(s);
@@ -191,14 +184,13 @@ int main() {
     vector<double> x_points = data_json["traj_x"];
     vector<double> y_points = data_json["traj_y"];
     vector<double> v_points = data_json["traj_v"];
-    double yaw = data_json["yaw"];
-    double velocity = data_json["velocity"];
-    double sim_time = data_json["time"];
+    double yaw       = data_json["yaw"];
+    double velocity  = data_json["velocity"];
     double waypoint_x = data_json["waypoint_x"];
     double waypoint_y = data_json["waypoint_y"];
     double waypoint_t = data_json["waypoint_t"];
-    bool is_junction = data_json["waypoint_j"];
-    string tl_state = data_json["tl_state"];
+    bool is_junction  = data_json["waypoint_j"];
+    string tl_state   = data_json["tl_state"];
 
     double x_position = data_json["location_x"];
     double y_position = data_json["location_y"];
@@ -209,14 +201,21 @@ int main() {
       set_obst(x_obst, y_obst, obstacles, have_obst);
     }
 
-    State goal{waypoint_x, waypoint_y, 0, waypoint_t, 0};
+    // Create goal state safely
+    State goal = {};
+    goal.location.x = waypoint_x;
+    goal.location.y = waypoint_y;
+    goal.rotation.yaw = waypoint_t;
 
     vector<vector<double>> spirals_x, spirals_y, spirals_v;
     vector<int> best_spirals;
 
-    path_planner(x_points, y_points, v_points, yaw, velocity, goal, is_junction, tl_state, spirals_x, spirals_y, spirals_v, best_spirals);
+    path_planner(x_points, y_points, v_points, yaw, velocity, goal,
+                 is_junction, tl_state, spirals_x, spirals_y, spirals_v, best_spirals);
 
     // Compute delta time
+    static time_t prev_timer = time(nullptr);
+    time_t timer;
     time(&timer);
     new_delta_time = difftime(timer, prev_timer);
     prev_timer = timer;
@@ -226,25 +225,27 @@ int main() {
     ////////////////////////////////////////
     pid_steer.UpdateDeltaTime(new_delta_time);
 
-    // Find closest point and compute heading error
-    int closest_idx = 0;
+    // Find closest point on trajectory
+    size_t closest_idx = 0;
     double closest_dist = numeric_limits<double>::max();
-    for (int j = 0; j < static_cast<int>(x_points.size()); ++j) {
+    for (size_t j = 0; j < x_points.size(); ++j) {
       double dx = x_points[j] - x_position;
       double dy = y_points[j] - y_position;
-      double dist = sqrt(dx * dx + dy * dy);
+      double dist = sqrt(dx*dx + dy*dy);
       if (dist < closest_dist) {
         closest_dist = dist;
         closest_idx = j;
       }
     }
-    int target_idx = min(closest_idx + 1, static_cast<int>(x_points.size()) - 1);
+
+    size_t target_idx = min(closest_idx + 1, x_points.size() - 1);
 
     double desired_yaw = yaw;
     if (target_idx != closest_idx) {
       desired_yaw = angle_between_points(x_points[closest_idx], y_points[closest_idx],
                                          x_points[target_idx], y_points[target_idx]);
     }
+
     double error_steer = atan2(sin(desired_yaw - yaw), cos(desired_yaw - yaw));
 
     pid_steer.UpdateError(error_steer);
@@ -255,7 +256,7 @@ int main() {
     ////////////////////////////////////////
     pid_throttle.UpdateDeltaTime(new_delta_time);
 
-    double target_speed = v_points[min(target_idx, static_cast<int>(v_points.size()) - 1)];
+    double target_speed = v_points[min(target_idx, v_points.size() - 1)];
     double error_throttle = target_speed - velocity;
 
     pid_throttle.UpdateError(error_throttle);
@@ -264,22 +265,22 @@ int main() {
     double throttle_output = max(0.0, throttle);
     double brake_output = (throttle < 0.0) ? -throttle : 0.0;
 
-    // Overcome launch dead zone
+    // Launch assist
     if (target_speed > 0.5 && velocity < 0.5 && throttle_output < 0.2) {
       throttle_output = 0.2;
       brake_output = 0.0;
     }
 
-    // Logging (append mode)
+    // Logging
     ofstream fs("steer_pid_data.txt", ios::app);
-    fs << i << " " << error_steer << " " << steer_output << endl;
+    fs << frame << " " << error_steer << " " << steer_output << endl;
     fs.close();
 
     ofstream ft("throttle_pid_data.txt", ios::app);
-    ft << i << " " << error_throttle << " " << brake_output << " " << throttle_output << endl;
+    ft << frame << " " << error_throttle << " " << brake_output << " " << throttle_output << endl;
     ft.close();
 
-    // Send control commands back to simulator
+    // Send control to simulator
     json msgJson;
     msgJson["brake"] = brake_output;
     msgJson["throttle"] = throttle_output;
@@ -298,11 +299,11 @@ int main() {
     auto msg = msgJson.dump();
     ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
 
-    i++;
+    frame++;
   });
 
   h.onConnection([](uWS::WebSocket<uWS::SERVER> ws, uWS::HttpRequest req) {
-    cout << "Connected!!!" << endl;
+    cout << "Connected to simulator!" << endl;
   });
 
   h.onDisconnection([&h](uWS::WebSocket<uWS::SERVER> ws, int code, char *message, size_t length) {
@@ -312,10 +313,12 @@ int main() {
 
   int port = 4567;
   if (h.listen("0.0.0.0", port)) {
-    cout << "Listening to port " << port << endl;
+    cout << "Listening on port " << port << endl;
     h.run();
   } else {
-    cerr << "Failed to listen to port" << endl;
+    cerr << "Failed to listen on port " << port << endl;
     return -1;
   }
+
+  return 0;
 }
